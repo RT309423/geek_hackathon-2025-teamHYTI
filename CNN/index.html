@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>写真アップロードフォーム</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/dropzone@5/dist/min/dropzone.min.css" type="text/css" />
+
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        .container { 
+            max-width: 700px; 
+            margin: 50px auto; 
+            padding: 30px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+        h2 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        /* Dropzoneの見た目を上書きして調整 */
+        .dropzone {
+            border: 2px dashed #0087F7;
+            border-radius: 8px;
+            background: #faffff;
+            min-height: 200px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .dz-message {
+            font-weight: bold;
+            color: #555;
+        }
+        #submit-button {
+            display: block;
+            width: 100%;
+            margin-top: 25px;
+            padding: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #fff;
+            background-color: #0087F7;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #submit-button:hover {
+            background-color: #005f9c;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>写真送付フォーム</h2>
+
+    <form action="https://webhook.site/bb444139-219e-4523-9901-5604c4b316b8" class="dropzone" id="image-upload"></form>
+
+    <button type="button" id="submit-button">選択した写真を送信する</button>
+</div>
+
+<script src="https://unpkg.com/dropzone@5/dist/min/dropzone.min.js"></script>
+
+<script>
+    // Dropzoneにデフォルトの挙動をさせないためのおまじない
+    Dropzone.autoDiscover = false;
+
+    // 'image-upload' というIDを持つform要素にDropzoneを適用
+    var myDropzone = new Dropzone("#image-upload", {
+        // 設定項目
+        url: document.getElementById('image-upload').getAttribute('action'), // formのaction属性を送信先として使用
+        autoProcessQueue: false,      // ★重要：ファイルをドロップしても自動で送信しないようにする
+        uploadMultiple: true,         // 複数のファイルをまとめて送信する
+        parallelUploads: 10,          // 同時にアップロードできるファイルの数
+        maxFiles: 10,                 // アップロードできるファイルの最大数
+        acceptedFiles: 'image/*',     // MIMEタイプで画像ファイルのみを許可
+        addRemoveLinks: true,         // ファイル削除のリンクを表示する
+        dictDefaultMessage: "ここに写真をドラッグ＆ドロップ<br>またはクリックして選択", // デフォルトのメッセージ
+        dictRemoveFile: "削除",
+        dictCancelUpload: "キャンセル",
+
+        // 初期化時の処理
+        init: function() {
+            var myDropzone = this;
+
+            // 'submit-button'というIDのボタンがクリックされたときの処理
+            document.getElementById("submit-button").addEventListener("click", function(e) {
+                // ボタンのデフォルトの挙動（フォーム送信など）をキャンセル
+                e.preventDefault();
+                e.stopPropagation();
+                // Dropzoneのキューに入っているファイル（選択されたファイル）の送信を開始する
+                myDropzone.processQueue();
+            });
+
+            // ファイルがすべて送信完了した後の処理
+            this.on("queuecomplete", function(file, response) {
+                alert("写真が送信されました！");
+                // 送信完了後、プレビューをすべて削除して初期状態に戻す
+                myDropzone.removeAllFiles(true);
+            });
+        }
+    });
+</script>
+
+</body>
+</html>

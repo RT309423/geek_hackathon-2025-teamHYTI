@@ -1,46 +1,55 @@
 # classify_flask.py
 
 import torch
+# V の定義を追加 (torch.autograd.Variable のエイリアスとして)
+from torch.autograd import Variable as V 
 import torchvision.models as models
 from torchvision import transforms as trn
 from torch.nn import functional as F
 import os
 from PIL import Image
 import numpy as np
-from flask import Flask, request, jsonify # --- Flask関連をインポート ---
+from flask import Flask, request, jsonify # Flask関連をインポート
 
-# --------------------------------------------------------------------------
-# AIモデルのセットアップ (サーバー起動時に一度だけ実行される)
-# --------------------------------------------------------------------------
-print("AIモデルをロードしています...少々お待ちください。")
 
-# 1. 事前学習済みモデルをロードする
-arch = 'resnet18'
-# このパスは、app.pyを実行する場所からの相対パスか、絶対パスを指定します
-model_file = r'C:\Users\保延荘志\geek2025\geek_hackathon-2025-teamHYTI-1\CNN\resnet18_places365.pth.tar'
-model = models.__dict__[arch](num_classes=365)
-checkpoint = torch.load(model_file, map_location=lambda storage, loc: storage)
-state_dict = {str.replace(k,'module.',''): v for k,v in checkpoint['state_dict'].items()}
-model.load_state_dict(state_dict)
-model.eval() # 推論モードに
+# --- 追加ここから ---
+from flask_cors import CORS # CORS対応のために追加
+# --- 追加ここまで ---
 
-# 2. 画像変換の設定
-centre_crop = trn.Compose([
-        trn.Resize((256,256)),
-        trn.CenterCrop(224),
-        trn.ToTensor(),
-        trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
+# AIモデルのロード、画像変換、カテゴリ情報の関数化 (サーバー起動時に一度だけ実行)
+def setup_ai_model():
+    print("AIモデルをロードしています...少々お待ちください。")
 
-# 3. 365カテゴリのラベル情報をロード
-file_name = r'C:\Users\保延荘志\geek2025\geek_hackathon-2025-teamHYTI-1\CNN\categories_places365.txt'
-classes = list()
-with open(file_name) as class_file:
-    for line in class_file:
-        classes.append(line.strip().split(' ')[0][3:])
+    arch = 'resnet18'
+    # モデルファイルのパスをスクリプトからの相対パスで指定
+    # os.path.dirname(__file__) は現在のスクリプトがあるディレクトリのパスを取得します
+    model_file = os.path.join(os.path.dirname(__file__), 'resnet18_places365.pth.tar')
+    
+    # モデルのロード
+    model = models.__dict__[arch](num_classes=365)
+    checkpoint = torch.load(model_file, map_location=lambda storage, loc: storage)
+    state_dict = {str.replace(k,'module.',''): v for k,v in checkpoint['state_dict'].items()}
+    model.load_state_dict(state_dict)
+    model.eval() # 推論モードに設定
 
-# 4. カテゴリのマッピング辞書
-category_mapping = {
+    # 画像変換の設定
+    centre_crop = trn.Compose([
+            trn.Resize((256,256)),
+            trn.CenterCrop(224),
+            trn.ToTensor(),
+            trn.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ])
+
+    # 365カテゴリのラベル情報をロード
+    # カテゴリファイルのパスをスクリプトからの相対パスで指定
+    file_name = os.path.join(os.path.dirname(__file__), 'categories_places365.txt')
+    classes = list()
+    with open(file_name) as class_file:
+        for line in class_file:
+            classes.append(line.strip().split(' ')[0][3:])
+
+    # カテゴリのマッピング辞書
+    category_mapping = {
         # 「家」に分類されるもの
         "attic": "家", "balcony/interior": "家", "bathroom": "家", "bedroom": "家", "childs_room": "家", 
         "closet": "家", "corridor": "家", "dining_room": "家", "home_office": "家", "kitchen": "家", 
@@ -58,9 +67,41 @@ category_mapping = {
         # 「学校」に分類されるもの
         "campus": "学校", "classroom": "学校", "lecture_room": "学校", "library/indoor": "学校"
     }
+    
+    print("AIモデルのロードが完了しました。")
+    return model, centre_crop, classes, category_mapping
 
-print("AIモデルのロードが完了しました。サーバーを起動します。")
-# --------------------------------------------------------------------------
+# AIモデルと関連設定をロード (サーバー起動時に一度だけ実行)
+model, centre_crop, classes, category_mapping = setup_ai_model()
+
+
+# サーバーが最後に識別した結果を保持するグローバル変数
+# 初期値は「未分類」「不明」としておく
+last_classification_result = {"place": "未分類", "time": "不明"}
+
+# Python側で識別する固定画像のパス
+# classify_flask.pyと同じディレクトリにあるmy_photo.jpgを指すようにします
+FIXED_IMAGE_PATH = os.path.join(os.path.dirname(__file__), 'my_photo.jpg')
+
+# 画像を自動的に識別し、結果を更新する関数
+def process_fixed_image_periodically():
+    global last_classification_result # グローバル変数を更新するために必要
+    
+    # 固定画像の存在チェック
+    if not os.path.exists(FIXED_IMAGE_PATH):
+        print(f"警告: 固定画像 '{FIXED_IMAGE_PATH}' が見つかりません。")
+        last_classification_result = {"place": "画像パスエラー", "time": "不明"}
+        return # ここで処理を終了
+
+    print(f"固定画像 '{FIXED_IMAGE_PATH}' を識別します...")
+    try:
+        img = Image.open(FIXED_IMAGE_PATH)
+        result = process_image(img) # 既存のprocess_image関数を呼び出す
+        last_classification_result = result
+        print(f"固定画像の識別完了。結果: {result}")
+    except Exception as e:
+        print(f"固定画像識別中にエラーが発生しました: {e}")
+        last_classification_result = {"place": "識別エラー", "time": "不明"}
 
 
 def analyze_time_of_day(image_object):
@@ -78,8 +119,8 @@ def analyze_time_of_day(image_object):
     # 色相(Hue)のヒストグラムを計算
     hue_hist = np.histogram(img_np[:, :, 0], bins=18, range=(0, 255))[0]
 
-    # --- 判定ロジック（このしきい値は調整可能） ---
-    BRIGHTNESS_NIGHT = 60   # この明るさより暗ければ「夜」
+    # 判定ロジック（しきい値は調整可能）
+    BRIGHTNESS_NIGHT = 60    # この明るさより暗ければ「夜」
     BRIGHTNESS_EVENING = 120 # この明るさより暗く、オレンジ色が多ければ「夕方」
 
     # まず明るさで「夜」を判定
@@ -120,8 +161,10 @@ app = Flask(__name__)
 
 @app.route("/classify", methods=["POST"])
 def classify():
-    # Unityから送信されたファイルを受け取る
+    global last_classification_result # グローバル変数を更新するために必要
+
     if 'image' not in request.files:
+        print("画像ファイルが見つかりません: リクエストに 'image' 部分がありません") # デバッグ用にログ出力
         return jsonify({"error": "画像ファイルが見つかりません"}), 400
     
     file = request.files['image']
@@ -133,13 +176,38 @@ def classify():
         # 画像処理と分類を実行
         result = process_image(img)
         
-        # 結果をJSONで返す
+        # UnityからPOSTで画像が送られてきた場合も、その結果を最新とする
+        last_classification_result = result 
+        print(f"Unityからの画像識別完了。結果を保存しました: {result}") # デバッグ用にログ出力
+        
+        # 結果をJSONで返す (UnityのImageClassifierClientが直接この結果を受け取る)
         return jsonify(result)
 
     except Exception as e:
+        print(f"画像処理中にエラーが発生しました: {e}") # デバッグ用にエラーログ出力
         return jsonify({"error": str(e)}), 500
 
+
+# CORSを有効にする。全てのオリジンからのリクエストを許可する設定
+CORS(app) 
+# --- 追加ここまで ---
+
+
+# Unityが最新の識別結果をGETリクエストで取得するためのエンドポイント
+@app.route("/get_last_result", methods=["GET"])
+def get_last_result():
+    # 保存されている最新の結果を返す
+    print(f"最新結果のリクエストを受信。返却: {last_classification_result}") # デバッグ用にログ出力
+    return jsonify(last_classification_result)
+
+
 if __name__ == "__main__":
+    # サーバー起動時に一度だけ固定画像を識別し、結果をセットする
+    # これは、Unityがポーリングする際に最初の結果がすぐに得られるようにするためです。
+    process_fixed_image_periodically()
+
     # Flaskサーバーを起動
     # host='0.0.0.0' で、ローカルネットワーク内の他のデバイス(Unity実行PC)からアクセス可能に
-    app.run(host='0.0.0.0', port=5000)
+    # debug=True は開発中は便利ですが、本番環境では False にしてください。
+    print("サーバーを起動します。")
+    app.run(host='0.0.0.0', port=5000, debug=True)

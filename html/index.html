@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>画像識別 - 画像アップロード</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 32px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+        .file-upload-box {
+            border: 2px dashed #cbd5e0;
+            border-radius: 12px;
+            padding: 30px;
+            margin-top: 20px;
+            cursor: pointer;
+            transition: border-color 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .file-upload-box:hover {
+            border-color: #6366f1; /* indigo-500 */
+        }
+        .file-upload-box input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .preview-image {
+            max-width: 100%;
+            max-height: 200px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none; /* 初期状態では非表示 */
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div class="container bg-white p-8 rounded-2xl shadow-xl flex flex-col items-center">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6">画像識別 - 画像送信</h1>
+
+        <!-- メッセージ表示エリア -->
+        <div id="message-box" class="w-full bg-blue-100 text-blue-800 p-4 rounded-lg hidden mb-4">
+            <span id="message-text"></span>
+        </div>
+
+        <!-- ファイル選択エリア -->
+        <div class="file-upload-box w-full mb-6 relative">
+            <input type="file" id="imageInput" accept="image/*">
+            <p class="text-gray-600 text-lg">画像をドラッグ＆ドロップするか、クリックして選択</p>
+            <p class="text-gray-400 text-sm mt-1">JPEG, PNGなどの画像ファイル</p>
+        </div>
+
+        <!-- 画像プレビュー -->
+        <img id="imagePreview" class="preview-image mb-6 border border-gray-200" alt="画像プレビュー">
+
+        <!-- 送信ボタン -->
+        <button id="sendButton" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition duration-300 ease-in-out transform hover:scale-105 shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-opacity-75">
+            画像を送信
+        </button>
+
+        <!-- ロード中のインジケーター -->
+        <div id="loadingIndicator" class="mt-4 hidden">
+            <div class="flex items-center space-x-2">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                <p class="text-indigo-600 text-lg">送信中...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- JavaScriptコード ---
+        const imageInput = document.getElementById('imageInput');
+        const imagePreview = document.getElementById('imagePreview');
+        const sendButton = document.getElementById('sendButton');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+
+        // Flask APIのエンドポイントURL (Pythonサーバーのアドレスとポート)
+        // 同じPCでFlaskサーバーを動かす場合: http://127.0.0.1:5000/classify
+        const API_URL = 'http://127.0.0.1:5000/classify';
+        let selectedFile = null;
+
+        // メッセージを表示する関数
+        function showMessage(text, type = 'info') {
+            messageText.textContent = text;
+            messageBox.className = `w-full p-4 rounded-lg mb-4 ${
+                type === 'success' ? 'bg-green-100 text-green-800' :
+                type === 'error' ? 'bg-red-100 text-red-800' :
+                'bg-blue-100 text-blue-800'
+            }`;
+            messageBox.classList.remove('hidden');
+        }
+
+        // メッセージを非表示にする関数
+        function hideMessage() {
+            messageBox.classList.add('hidden');
+        }
+
+        // ファイルが選択されたときの処理
+        imageInput.addEventListener('change', (event) => {
+            selectedFile = event.target.files[0];
+            if (selectedFile) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imagePreview.src = e.target.result;
+                    imagePreview.style.display = 'block'; // プレビューを表示
+                };
+                reader.readAsDataURL(selectedFile);
+                hideMessage(); // 新しいファイルが選択されたらメッセージを非表示
+            } else {
+                imagePreview.style.display = 'none'; // ファイルがない場合はプレビューを非表示
+                selectedFile = null;
+            }
+        });
+
+        // 送信ボタンがクリックされたときの処理
+        sendButton.addEventListener('click', async () => {
+            if (!selectedFile) {
+                showMessage('画像ファイルを選択してください。', 'error');
+                return;
+            }
+
+            loadingIndicator.classList.remove('hidden'); // ローディング表示
+            sendButton.disabled = true; // ボタンを無効化
+            hideMessage(); // 以前のメッセージを非表示
+
+            const formData = new FormData();
+            // Flask APIが期待するフォームフィールド名 'image' に、選択されたファイルを追加
+            formData.append('image', selectedFile);
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    body: formData // FormDataオブジェクトをそのまま送信
+                });
+
+                // HTTPステータスコードが2xx以外の場合
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`APIエラー (${response.status}): ${errorData.error || '不明なエラー'}`);
+                }
+
+                const result = await response.json();
+                console.log('識別結果:', result); // デバッグ用にコンソールに出力
+                showMessage(`識別結果: 場所「${result.place}」, 時間帯「${result.time}」`, 'success');
+
+                // Flaskサーバーのlast_classification_resultが更新されたことを確認
+                // Unityのポーリングでこの結果が取得されるはずです。
+
+            } catch (error) {
+                console.error('画像の送信または識別に失敗しました:', error);
+                showMessage(`エラー: ${error.message}`, 'error');
+            } finally {
+                loadingIndicator.classList.add('hidden'); // ローディング非表示
+                sendButton.disabled = false; // ボタンを有効化
+            }
+        });
+    </script>
+</body>
+</html>

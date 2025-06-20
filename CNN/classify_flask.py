@@ -1,4 +1,4 @@
-# app.py
+# classify_flask.py
 
 import torch
 import torchvision.models as models
